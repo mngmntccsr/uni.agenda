@@ -20,19 +20,57 @@ export function parseTimetableHtml(html:string):Lesson[]{
   });
   return out;
 }
+const rome=(v:string)=>{
+  if(!/[zZ]|[+-]\d\d:?\d\d$/.test(v))return {date:v.slice(0,10),time:v.slice(11,16)};
+  const p=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome',dateStyle:'short',timeStyle:'short'}).format(new Date(v)).split(' ');
+  return {date:p[0],time:p[1]};
+};
+function collect(j:any,out:any[]){
+  if(Array.isArray(j)){j.forEach(x=>collect(x,out));return}
+  if(j&&typeof j==='object'){
+    if(typeof j.start==='string'&&typeof j.end==='string'&&j.start.length>=16)out.push(j);
+    else Object.values(j).forEach(x=>collect(x,out));
+  }
+}
+export function parseEvents(json:any):Lesson[]{
+  const ev:any[]=[];collect(json,ev);const out:Lesson[]=[];
+  for(const e of ev){
+    const raw=JSON.stringify(e);const nr=raw.toLowerCase().replace(/[’`]/g,"'");
+    const c=CONFIG.courses.find(c=>nr.includes(c.name.toLowerCase())||raw.includes(c.code));if(!c)continue;
+    const a=rome(e.start),b=rome(e.end);
+    const room=e.room||e.aula||e.location||raw.match(/((?:Aula|Sala)[^"(\\,\[]{1,40})/)?.[1]?.trim();
+    out.push({id:`${c.id}-${a.date}-${a.time}`,courseId:c.id,course:c.name,date:a.date,start:a.time,end:b.time,room:typeof room==='string'?room:undefined});
+  }
+  return out;
+}
 export async function fetchLessons():Promise<Lesson[]>{
   const {chromium}=await import('playwright');
   const b=await chromium.launch();
   try{
     const ctx=await b.newContext({locale:'it-IT',userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'});
-    const p=await ctx.newPage(); await p.goto(CONFIG.timetableUrl,{waitUntil:'networkidle',timeout:60000});
-    await p.waitForTimeout(5000);
+    const p=await ctx.newPage();
+    const feeds:{url:string;body:string}[]=[];
+    p.on('response',async r=>{try{if((r.headers()['content-type']||'').includes('json'))feeds.push({url:r.url(),body:await r.text()})}catch{}});
+    await p.goto(CONFIG.timetableUrl,{waitUntil:'networkidle',timeout:60000});
+    await p.waitForTimeout(3000);
     let lessons:Lesson[]=[];
-    for(const f of p.frames()){try{lessons=lessons.concat(parseTimetableHtml(await f.content()))}catch{}}
+    const add=(l:Lesson[])=>{for(const x of l)if(!lessons.some(y=>y.id===x.id))lessons.push(x)};
+    for(const f of feeds){
+      try{add(parseEvents(JSON.parse(f.body)))}catch{}
+      const u=new URL(f.url);
+      if(u.searchParams.has('start')&&u.searchParams.has('end')){
+        const iso=u.searchParams.get('start')!.includes('T');
+        u.searchParams.set('start',iso?'2026-09-01T00:00:00':'2026-09-01');
+        u.searchParams.set('end',iso?'2027-03-31T00:00:00':'2027-03-31');
+        try{const r=await ctx.request.get(u.toString());add(parseEvents(await r.json()))}catch{}
+      }
+    }
     if(!lessons.length){
-      const txt=(await p.innerText('body').catch(()=>'')).replace(/\s+/g,' ');
-      console.log('DIAGNOSTICA url:',p.url(),'| titolo:',await p.title(),'| tabelle:',await p.locator('table').count(),'| frame:',p.frames().map(f=>f.url()).join(', '));
-      console.log('DIAGNOSTICA testo:',txt.slice(0,1500));
+      console.log('DIAGNOSTICA json:',feeds.map(f=>f.url+' ['+f.body.length+'] '+f.body.slice(0,250)).join('\n'));
+      await p.getByText('Settimana (tabulato)').first().click({timeout:5000}).catch(()=>{});
+      await p.waitForTimeout(2000);
+      const html=await p.locator('table').first().evaluate(t=>t.outerHTML).catch(()=> 'nessuna tabella');
+      console.log('DIAGNOSTICA html:',html.replace(/\s+/g,' ').slice(0,1800));
       throw new Error('Orario Sapienza non trovato o senza le 3 materie richieste.');
     }
     return lessons;
