@@ -9,7 +9,7 @@ export function parseTimetableHtml(html:string):Lesson[]{
       const cells=$(tr).find('th,td').map((_,c)=>$(c).text().replace(/\s+/g,' ').trim()).get();
       if($(tr).find('th').length){roomIdx=cells.findIndex(c=>/aula/i.test(c));return}
       const row=cells.join(' | ');
-      const course=CONFIG.courses.find(c=>row.includes(c.code)); if(!course)return;
+      const nr=row.toLowerCase().replace(/[’`]/g,"'");const course=CONFIG.courses.find(c=>row.includes(c.code)||nr.includes(c.name.toLowerCase())); if(!course)return;
       const d=row.match(/(\d{2})\/(\d{2})\/(\d{4})/); const t=row.match(/(\d{1,2}[:.]\d{2})\s*[-–]\s*(\d{1,2}[:.]\d{2})/);
       if(!d||!t)return;
       const f=(x:string)=>x.replace('.',':').padStart(5,'0');
@@ -24,10 +24,17 @@ export async function fetchLessons():Promise<Lesson[]>{
   const {chromium}=await import('playwright');
   const b=await chromium.launch();
   try{
-    const p=await b.newPage(); await p.goto(CONFIG.timetableUrl,{waitUntil:'networkidle',timeout:45000});
-    await p.waitForSelector('table',{timeout:20000}).catch(()=>{});
-    const lessons=parseTimetableHtml(await p.content());
-    if(!lessons.length)throw new Error('Orario Sapienza non trovato o senza le 3 materie richieste.');
+    const ctx=await b.newContext({locale:'it-IT',userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'});
+    const p=await ctx.newPage(); await p.goto(CONFIG.timetableUrl,{waitUntil:'networkidle',timeout:60000});
+    await p.waitForTimeout(5000);
+    let lessons:Lesson[]=[];
+    for(const f of p.frames()){try{lessons=lessons.concat(parseTimetableHtml(await f.content()))}catch{}}
+    if(!lessons.length){
+      const txt=(await p.innerText('body').catch(()=>'')).replace(/\s+/g,' ');
+      console.log('DIAGNOSTICA url:',p.url(),'| titolo:',await p.title(),'| tabelle:',await p.locator('table').count(),'| frame:',p.frames().map(f=>f.url()).join(', '));
+      console.log('DIAGNOSTICA testo:',txt.slice(0,1500));
+      throw new Error('Orario Sapienza non trovato o senza le 3 materie richieste.');
+    }
     return lessons;
   } finally{await b.close()}
 }
