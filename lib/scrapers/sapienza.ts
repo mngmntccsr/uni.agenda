@@ -35,7 +35,7 @@ function collect(j:any,out:any[]){
 export function parseEvents(json:any):Lesson[]{
   const ev:any[]=[];collect(json,ev);const out:Lesson[]=[];
   for(const e of ev){
-    const raw=JSON.stringify(e);const nr=raw.toLowerCase().replace(/[’`]/g,"'");
+    const raw=JSON.stringify(e).replace(/&#0?39;|&apos;/g,"'").replace(/&amp;/g,'&');const nr=raw.toLowerCase().replace(/[’`]/g,"'");
     const c=CONFIG.courses.find(c=>nr.includes(c.name.toLowerCase())||raw.includes(c.code));if(!c)continue;
     const a=rome(e.start),b=rome(e.end);
     const room=e.room||e.aula||e.location||raw.match(/((?:Aula|Sala)[^"(\\,\[]{1,40})/)?.[1]?.trim();
