@@ -55,22 +55,21 @@ export async function fetchLessons():Promise<Lesson[]>{
     await p.waitForTimeout(3000);
     let lessons:Lesson[]=[];
     const add=(l:Lesson[])=>{for(const x of l)if(!lessons.some(y=>y.id===x.id))lessons.push(x)};
+    const titles=new Set<string>();
+    const seen=(j:any)=>{const ev:any[]=[];collect(j,ev);ev.forEach(e=>titles.add(String(e.title).replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,70)))};
     for(const f of feeds){
-      try{add(parseEvents(JSON.parse(f.body)))}catch{}
+      try{const j=JSON.parse(f.body);seen(j);add(parseEvents(j))}catch{}
       const u=new URL(f.url);
       if(u.searchParams.has('start')&&u.searchParams.has('end')){
-        const iso=u.searchParams.get('start')!.includes('T');
-        u.searchParams.set('start',iso?'2026-09-01T00:00:00':'2026-09-01');
-        u.searchParams.set('end',iso?'2027-03-31T00:00:00':'2027-03-31');
-        try{const r=await ctx.request.get(u.toString());add(parseEvents(await r.json()))}catch{}
+        for(let m=0;m<7;m++){
+          const s0=new Date(Date.UTC(2026,8+m,1)),e0=new Date(Date.UTC(2026,9+m,1));
+          u.searchParams.set('start',s0.toISOString());u.searchParams.set('end',e0.toISOString());
+          try{const r=await ctx.request.get(u.toString());const j=await r.json();seen(j);add(parseEvents(j))}catch(e){console.log('feed errore',m,String(e).slice(0,100))}
+        }
       }
     }
     if(!lessons.length){
-      console.log('DIAGNOSTICA json:',feeds.map(f=>f.url+' ['+f.body.length+'] '+f.body.slice(0,250)).join('\n'));
-      await p.getByText('Settimana (tabulato)').first().click({timeout:5000}).catch(()=>{});
-      await p.waitForTimeout(2000);
-      const html=await p.locator('table').first().evaluate(t=>t.outerHTML).catch(()=> 'nessuna tabella');
-      console.log('DIAGNOSTICA html:',html.replace(/\s+/g,' ').slice(0,1800));
+      console.log('DIAGNOSTICA titoli trovati ('+titles.size+'):',[...titles].join(' ## '));
       throw new Error('Orario Sapienza non trovato o senza le 3 materie richieste.');
     }
     return lessons;
