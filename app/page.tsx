@@ -2,7 +2,7 @@
 import { useEffect,useMemo,useState } from 'react';
 import { format,addDays,startOfWeek } from 'date-fns';
 import { it } from 'date-fns/locale';
-import { DayPlan } from '../lib/types';
+import { DayPlan,Train } from '../lib/types';
 
 export default function Home(){
  const [anchor,setAnchor]=useState(format(new Date(),'yyyy-MM-dd')); const [days,setDays]=useState<DayPlan[]|null>(null); const [error,setError]=useState('');const [updated,setUpdated]=useState('');
@@ -16,13 +16,15 @@ export default function Home(){
  </main>
 }
 const PX=0.9;
+const end=(a:string,b:string)=>mins(b)<mins(a)?1440:mins(b);
+const lab=(t:Train)=>{const tr=t.provider.startsWith('Trenitalia');return `${tr?'🚆':'🚌'} ${t.departure}→${t.arrival}${mins(t.arrival)<mins(t.departure)?'+1':''}${tr?'':' '+t.provider}`};
 const mins=(t:string)=>{const [h,m]=t.split(':').map(Number);return h*60+m};
 function Timetable({days}:{days:DayPlan[]}){
  const all:number[]=[];
- days.forEach(d=>{d.lessons.forEach(l=>all.push(mins(l.start),mins(l.end)));if(d.lessons.length){const o=d.outbound[0],i=d.inbound[0];if(o)all.push(mins(o.departure));if(i)all.push(mins(i.arrival))}});
+ days.forEach(d=>{d.lessons.forEach(l=>all.push(mins(l.start),mins(l.end)));if(d.lessons.length){const o=d.outbound[0],i=d.inbound[0];if(o)all.push(mins(o.departure));if(i)all.push(end(i.departure,i.arrival))}});
  const from=(all.length?Math.floor(Math.min(...all)/60):8)*60-0, to=(all.length?Math.ceil(Math.max(...all)/60):20)*60;
  const hours=Array.from({length:(to-from)/60+1},(_,i)=>from/60+i);
- const box=(a:string,b:string)=>({top:(mins(a)-from)*PX,height:Math.max((mins(b)-mins(a))*PX,22)});
+ const box=(a:string,b:string)=>({top:(mins(a)-from)*PX,height:Math.max((end(a,b)-mins(a))*PX,22)});
  return <div className="tt-wrap"><div className="tt">
   <div className="tt-corner"/>
   {days.map(d=><div className="tt-head" key={d.date}><b>{format(new Date(d.date+'T12:00:00'),'EEE',{locale:it})}</b> {format(new Date(d.date+'T12:00:00'),'d/M')}</div>)}
@@ -30,7 +32,7 @@ function Timetable({days}:{days:DayPlan[]}){
   {days.map(d=><div className="tt-col" key={d.date} style={{height:(to-from)*PX}}>
    {hours.map(h=><div key={h} className="tt-line" style={{top:(h*60-from)*PX}}/>)}
    {d.lessons.map(l=><div key={l.id} className="tt-ev tt-lesson" style={box(l.start,l.end)}><b>{l.start}–{l.end}</b> {l.course}{l.room?` · ${l.room}`:''}</div>)}
-   {d.lessons.length>0&&d.outbound[0]&&<div className="tt-ev tt-train" style={box(d.outbound[0].departure,d.outbound[0].arrival)}>🚆 {d.outbound[0].departure}→{d.outbound[0].arrival}</div>}
-   {d.lessons.length>0&&d.inbound[0]&&<div className="tt-ev tt-train" style={box(d.inbound[0].departure,d.inbound[0].arrival)}>🚆 {d.inbound[0].departure}→{d.inbound[0].arrival}</div>}
+   {d.lessons.length>0&&d.outbound[0]&&<div className="tt-ev tt-train" style={box(d.outbound[0].departure,d.outbound[0].arrival)}>{lab(d.outbound[0])}</div>}
+   {d.lessons.length>0&&d.inbound[0]&&<div className="tt-ev tt-train" style={box(d.inbound[0].departure,d.inbound[0].arrival)}>{lab(d.inbound[0])}</div>}
   </div>)}
  </div></div>}
